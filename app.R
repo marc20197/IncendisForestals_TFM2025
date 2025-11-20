@@ -1,5 +1,3 @@
-#
-# Mapa incendis
 
 library(shiny)
 library(leaflet)
@@ -7,7 +5,9 @@ library(dplyr)
 library(ggplot2)
 library(DT)
 library(sf)
+incendis <- st_read("Dades/Perimetres_Incendis/incendis19/incendis2019.shp")
 
+incendis
 # Exemple: llegir un fitxer SHP
 temp_dir <- tempdir()
 unzip("incendis94.zip", exdir = temp_dir)
