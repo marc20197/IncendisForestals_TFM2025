@@ -1,7 +1,4 @@
-Github: on hi ha el codi de l'aplicació
-  
-  https://github.com/marc20197/IncendisForestals_TFM2025/tree/main
+Github:
+https://github.com/marc20197/IncendisForestals_TFM2025/tree/main
 
-ShinyApps: on es pot veure el dashboard de l'aplicació
-
-  https://marc20197.shinyapps.io/aplicacioincendis/
+ShinyApps:

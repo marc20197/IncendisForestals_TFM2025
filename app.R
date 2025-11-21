@@ -1,47 +1,84 @@
 
 library(shiny)
 library(leaflet)
-library(dplyr)
-library(ggplot2)
-library(DT)
 library(sf)
-incendis <- st_read("Dades/Perimetres_Incendis/incendis19/incendis2019.shp")
+library(dplyr)
+library(purrr)
+library(stringr)
 
-incendis
-# Exemple: llegir un fitxer SHP
-temp_dir <- tempdir()
-unzip("incendis94.zip", exdir = temp_dir)
-
-# Busca el fitxer .shp dins el zip
-temp_dir <- tempdir()
-getwd()
-list.files()
-unzip("incendis94.zip", exdir = temp_dir)
-
-# Busca el fitxer .shp dins el zip
-shp_file <- list.files(temp_dir, pattern = "\\.shp$", full.names = TRUE)
-
-# Llegeix-lo amb sf
-shape <- st_read(shp_file)
-
-# Converteix a coordenades geogràfiques (lat/lon)
-shape <- st_transform(shape, crs = 4326)
-# shape <- readRDS("shape_simple.rds")
-ui <- fluidPage(
-  titlePanel("Mapa d'incendis de Catalunya (1994)"),
+carrega_incendis <- function(directory) {
   
-  leafletOutput("mapa", height = 600)
+  zips <- list.files(directory, pattern = "^incendis\\d{2}\\.zip$", full.names = TRUE)
+  
+  dades <- map_df(zips, function(zipfile) {
+    
+    # Any: extreu “86” → 1986
+    any2 <- str_extract(basename(zipfile), "\\d{2}")
+    any <- ifelse(as.numeric(any2) >= 86, 1900 + as.numeric(any2), 2000 + as.numeric(any2))
+    
+    # Directori temporal exclusiu per aquest ZIP
+    tmpdir <- tempfile()
+    dir.create(tmpdir)
+    
+    # Extreure contingut aquí
+    unzip(zipfile, exdir = tmpdir)
+    
+    # Buscar el .shp correcte (només n’hi haurà un)
+    shp <- list.files(tmpdir, pattern = "\\.shp$", full.names = TRUE)
+    
+    if (length(shp) == 0) return(NULL)
+    
+    sfobj <- st_read(shp, quiet = TRUE)
+    sfobj <- st_transform(sfobj, 4326)
+    sfobj$any <- any
+    sfobj
+  })
+  
+  return(dades)
+}
+incendis_sf <- carrega_incendis("Dades/Perimetres_Incendis")
+
+ui <- fluidPage(
+  titlePanel("Incendis forestals Catalunya"),
+  sidebarLayout(
+    sidebarPanel(
+      selectInput(
+        inputId = "any",
+        label = "Any:",
+        choices = 1986:2024,
+        selected = 1999
+      )
+    ),
+    mainPanel(
+      leafletOutput("mapa", height = 600)
+    )
+  )
 )
+
 server <- function(input, output, session) {
   
+  # Carrega dades fora de render* (només un cop)
+  incendis <- incendis_sf
+  
   output$mapa <- renderLeaflet({
-    leaflet(shape) %>%
-      addProviderTiles("CartoDB.Positron") %>%
-      addPolygons(
-        color = "red",
-        weight = 1,
-        fillOpacity = 0.4
-      )
+    leaflet() %>% addTiles()
+  })
+  
+  observe({
+    
+    filt <- incendis %>% filter(any == input$any)
+    
+    leafletProxy("mapa") %>%
+      clearShapes() %>%
+      addPolygons(data = filt,
+                  color = "red",
+                  weight = 2,
+                  fillOpacity = 0.3,
+                  popup = ~paste0(
+                    "<b>Any </b>: ", any, "<br>")
+                  )
   })
 }
-shinyApp(ui = ui, server = server)
+
+shinyApp(ui, server)
+
