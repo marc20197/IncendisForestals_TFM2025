@@ -1,0 +1,12 @@
+name: appshiny_incendis
+title: appshiny_incendis
+username: marc20197
+account: marc20197
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 16236277
+bundleId: 11272527
+url: https://marc20197.shinyapps.io/appshiny_incendis/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE
