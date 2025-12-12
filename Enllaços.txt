@@ -1,4 +1,9 @@
+AQUÍ ES POT TROBAR EL CODI
 Github:
 https://github.com/marc20197/IncendisForestals_TFM2025/tree/main
 
+
+AQUÍ ES POT TROBAR LA VISUALITZACIÓ
 ShinyApps:
+https://marc20197.shinyapps.io/appshiny_incendis/
+
