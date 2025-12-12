@@ -1,0 +1,225 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+install.packages(c("sf", "dplyr", "readr", "stringr", "lubridate"))
+
+library(sf)
+library(dplyr)
+library(readr)
+library(stringr)
+library(lubridate)
+```
+
+```{r}
+## 1. Llistar fitxers d'incendis -------------------------
+
+fitxers <- list.files(
+  path   = "Data/Incendis",
+  pattern = "^incendis.*\\.geojson$",
+  full.names = TRUE
+)
+
+length(fitxers)
+print(fitxers)
+```
+
+```{r}
+## 2. Funció per obtenir l'any a partir del nom del fitxer ----
+# Exemple: "incendis91.geojson" -> 1991
+#          "incendis03.geojson" -> 2003
+# Assumpció: si el número és <= 50 -> 2000 + n, altrament 1900 + n
+any_des_de_nom <- function(path) {
+  base <- basename(path)
+  num_str <- str_extract(base, "(\\d+)(?=\\.geojson$)")
+  n <- suppressWarnings(as.integer(num_str))
+  if (is.na(n)) return(NA_integer_)
+  if (n <= 50) 2000 + n else 1900 + n
+}
+
+```
+
+```{r}
+## 3. Llegir cada fitxer, afegir ANY, arreglar tipus bàsics ----
+
+llista_incendis <- lapply(fitxers, function(f) {
+  any_fitxer <- any_des_de_nom(f)
+  
+  g <- st_read(f, quiet = TRUE)
+  
+  # Assegurem DATA_INCEN com a text i després l'arreglarem
+  # perquè R no les llegeix del tot bé
+  if ("DATA_INCEN" %in% names(g)) {
+    g <- g %>% mutate(DATA_INCEN = as.character(DATA_INCEN))
+  } else {
+    g$DATA_INCEN <- NA_character_
+  }
+  
+  # Afegim columna ANY procedent del nom del fitxer
+  g <- g %>% mutate(ANY = any_fitxer)
+  
+  # Eliminem OBJECTID si apareix
+  # És una columna rara, que no sé perquè està en alguns fitxers com a l'incendis16.geojson
+  if ("OBJECTID" %in% names(g)) {
+    g <- g %>% select(-OBJECTID)
+  }
+  
+  g
+})
+```
+
+```{r}
+
+## 4. Unir tots els anys en un sol sf ---------------------
+# 1. Filtrar cada data frame de la llista
+# Només treballaré amb els dl 2005 al 2024
+llista_incendis_filtrats <- lapply(
+  llista_incendis,
+  function(df) df[df$ANY >= 2005 & df$ANY <= 2024, ]
+)
+
+# 2. Unir-los
+incendis <- do.call(rbind, llista_incendis_filtrats)
+
+```
+
+```{r}
+## 5. Assignar CRS i calcular hectàrees -------------------
+
+# Els GeoJSON d'incendis ja venen en UTM metres (25831), així que:
+incendis <- incendis %>% 
+  st_set_crs(25831)
+
+incendis <- incendis %>%
+  mutate(
+    HECTAREES = as.numeric(st_area(geometry)) / 10000
+  )
+```
+
+```{r}
+municipis_unics <- unique(incendis$MUNICIPI)
+municipis_unics
+```
+
+```{r}
+dates_uniques <- unique(incendis$DATA_INCEN)
+dates_uniques
+```
+
+```{r}
+## 6. Eliminar registres completament buits ----
+# Si tenim columnes MUNICIPI, CODI_FINAL, DATA_INCEN i GRID_CODE == 0
+# que són "no dades", els filtrem així:
+
+if (all(c("MUNICIPI", "CODI_FINAL", "DATA_INCEN", "GRID_CODE") %in% names(incendis))) {
+  incendis <- incendis %>%
+    mutate(
+      MUNICIPI   = as.character(MUNICIPI),
+      CODI_FINAL = as.character(CODI_FINAL),
+      DATA_INCEN = as.character(DATA_INCEN)
+    ) %>%
+    filter(
+      !(
+        (is.na(MUNICIPI)   | MUNICIPI   == "") &
+        (is.na(CODI_FINAL) | CODI_FINAL == "") &
+        (is.na(DATA_INCEN) | DATA_INCEN == "") &
+        GRID_CODE == 0
+      )
+    )
+}
+
+```
+
+```{r}
+library(dplyr)
+library(stringr)
+library(lubridate)
+
+incendis <- incendis %>%
+  mutate(
+    # Neteja bàsica
+    DATA_INCEN = str_trim(DATA_INCEN),
+    ANY        = as.integer(ANY),
+
+    # Marquem els casos que ens interessen:
+    #  - ANY entre 2001 i 2018
+    #  - DATA_INCEN amb format "YYYY-MM-DD"
+    any_target = !is.na(ANY) & ANY >= 2005 & ANY <= 2018,
+    fmt_guio   = str_detect(DATA_INCEN, "^\\d{4}-\\d{2}-\\d{2}$"),
+
+    # Parsejem només aquests "YYYY-MM-DD"
+    tmp_date = if_else(any_target & fmt_guio,
+                       ymd(DATA_INCEN),
+                       as.Date(NA_character_))
+  ) %>%
+  mutate(
+    # Reescrivim DATA_INCEN només per aquests casos
+    DATA_INCEN = if_else(
+      any_target & fmt_guio & !is.na(tmp_date),
+      # nou format "dd/mm/aaaa"
+      sprintf("%02d/%02d/%04d",
+              year(tmp_date) %% 100L,   # dia = darreres dues xifres de l'any mal llegit
+              month(tmp_date),          # mes mal llegit
+              ANY                       # any = ANY del fitxer
+      ),
+      DATA_INCEN
+    )
+  ) %>%
+  # Eliminem les columnes auxiliars
+  select(-any_target, -fmt_guio, -tmp_date)
+
+```
+
+```{r}
+dates_uniques <- unique(incendis$DATA_INCEN)
+dates_uniques
+```
+
+```{r}
+library(dplyr)
+library(stringr)
+library(lubridate)
+
+incendis <- incendis %>%
+  mutate(
+    DATA_INCEN = str_trim(DATA_INCEN),
+
+    # Marquem només les dates dd/mm/yy (exactament 2 xifres d'any)
+    is_dmy2 = str_detect(DATA_INCEN, "^\\d{2}/\\d{2}/\\d{2}$"),
+
+    # Parsejem aquestes com a data (Date)
+    tmp_date = if_else(
+      is_dmy2,
+      dmy(DATA_INCEN),           # interpreta 07/02/00, 15/07/98, etc.
+      as.Date(NA_character_)
+    ),
+
+    # Reescrivim DATA_INCEN amb any de 4 xifres només en aquests casos
+    DATA_INCEN = if_else(
+      is_dmy2 & !is.na(tmp_date),
+      format(tmp_date, "%d/%m/%Y"),  # exemple: 07/02/2000, 15/07/1998
+      DATA_INCEN
+    )
+  ) %>%
+  # Eliminem columnes auxiliars
+  select(-is_dmy2, -tmp_date)
+
+```
+
+```{r}
+dates_uniques <- unique(incendis$DATA_INCEN)
+dates_uniques
+```
+
+```{r}
+# Eliminem dues columnes que no ens interessen
+incendis_final <- incendis %>%
+  select(-CODI_FINAL, -GRID_CODE)   # elimina les dues columnes
+```
+
+```{r}
+# Escriure el resultat a GeoJSON
+st_write(incendis_final, "incendis_complet.geojson", delete_dsn = TRUE)
+```
